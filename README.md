@@ -21,13 +21,11 @@ The manager is accessed in-game by pressing **F6** (default). This can be change
 
 ## Changelog
 ### v18.4.4
-- **Game Pausing Reverted:** The game no longer pauses when the manager is open, as it caused issues. Only camera and player movement are now blocked.
-
-### v18.4.3
-- **Game Pausing:** The game is now automatically paused when the configuration manager is open.
-- **Improved Mouse & Camera Handling:**
+- **Keybind Cleanup:** Removed hardcoded F1 and F5 keybinds. **F6** is now the sole default keybind (customizable).
+- **Camera & Mouse Handling:**
+  - Game pausing (Time.timeScale) was removed to avoid issues; only camera/player movement is now blocked.
   - Mouse position is "frozen" while the GUI is open to prevent the game from reacting to mouse movements.
-  - Improved camera disabling logic: Camera and MouseLook scripts are now temporarily disabled when the menu is open, preventing camera drift.
+  - Improved camera disabling logic: Camera and MouseLook scripts are now temporarily disabled when the menu is open.
   - Enhanced input blocking for all mouse-related axes.
 - **Better Input Fields:**
   - Numerical and text input fields now require pressing **Enter** to commit changes, preventing accidental updates while typing.
