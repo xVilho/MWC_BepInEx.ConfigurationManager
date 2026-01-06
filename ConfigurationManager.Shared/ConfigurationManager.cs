@@ -790,8 +790,8 @@ namespace ConfigurationManager
         {
             try
             {
-                bool toggle = Input.GetKeyDown(KeyCode.F6) || Input.GetKeyDown(KeyCode.F1) || Input.GetKeyDown(KeyCode.F5);
-                if (!toggle && !OverrideHotkey && _keybind.Value.IsDown()) toggle = true;
+                bool toggle = _keybind.Value.IsDown();
+                if (!toggle && OverrideHotkey) toggle = true;
 
                 if (toggle)
                 {
