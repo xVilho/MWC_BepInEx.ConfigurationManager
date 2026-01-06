@@ -21,6 +21,8 @@ namespace ConfigurationManager
 
         private static readonly Dictionary<SettingEntryBase, ComboBox> _comboBoxCache = new Dictionary<SettingEntryBase, ComboBox>();
         private static readonly Dictionary<SettingEntryBase, ColorCacheEntry> _colorCache = new Dictionary<SettingEntryBase, ColorCacheEntry>();
+        private static readonly Dictionary<SettingEntryBase, string> _tempStrings = new Dictionary<SettingEntryBase, string>();
+        private static readonly Dictionary<SettingEntryBase, string> _errorMessages = new Dictionary<SettingEntryBase, string>();
 
         private static ConfigurationManager _instance;
 
@@ -78,6 +80,8 @@ namespace ConfigurationManager
         public static void ClearCache()
         {
             _comboBoxCache.Clear();
+            _tempStrings.Clear();
+            _errorMessages.Clear();
 
             foreach (var tex in _colorCache)
                 UnityEngine.Object.Destroy(tex.Value.Tex);
@@ -282,19 +286,40 @@ namespace ConfigurationManager
             }
             else
             {
-                var strVal = Convert.ToString(value, CultureInfo.InvariantCulture).AppendZeroIfFloat(setting.SettingType);
+                if (!_tempStrings.TryGetValue(setting, out var strVal))
+                {
+                    strVal = Convert.ToString(value, CultureInfo.InvariantCulture);
+                    _tempStrings[setting] = strVal;
+                }
+
+                var isError = _errorMessages.ContainsKey(setting);
+                var origColor = GUI.color;
+                if (isError) GUI.color = Color.red;
+                
                 var strResult = GUILayout.TextField(strVal, GUILayout.Width(50));
+                GUI.color = origColor;
+
                 if (strResult != strVal)
+                {
+                    _tempStrings[setting] = strResult;
+                    _errorMessages.Remove(setting);
+                }
+
+                if (Event.current.isKey && (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter))
                 {
                     try
                     {
-                        var resultVal = (float)Convert.ToDouble(strResult, CultureInfo.InvariantCulture);
+                        var cleanStr = _tempStrings[setting].Replace(',', '.');
+                        var resultVal = (float)Convert.ToDouble(cleanStr, CultureInfo.InvariantCulture);
                         var clampedResultVal = Mathf.Clamp(resultVal, leftValue, rightValue);
                         setting.Set(Convert.ChangeType(clampedResultVal, setting.SettingType, CultureInfo.InvariantCulture));
+                        _tempStrings[setting] = Convert.ToString(setting.Get(), CultureInfo.InvariantCulture);
+                        _errorMessages.Remove(setting);
+                        GUI.FocusControl(null);
                     }
-                    catch (FormatException)
+                    catch
                     {
-                        // Ignore user typing in bad data
+                        _errorMessages[setting] = "Invalid format";
                     }
                 }
             }
@@ -302,29 +327,46 @@ namespace ConfigurationManager
 
         private void DrawUnknownField(SettingEntryBase setting, int rightColumnWidth)
         {
-            // Try to use user-supplied converters
-            if (setting.ObjToStr != null && setting.StrToObj != null)
+            if (!_tempStrings.TryGetValue(setting, out var strVal))
             {
-                var text = setting.ObjToStr(setting.Get()).AppendZeroIfFloat(setting.SettingType);
-                var result = GUILayout.TextField(text, GUILayout.Width(rightColumnWidth), GUILayout.MaxWidth(rightColumnWidth));
-
-                if (result != text)
-                    setting.Set(setting.StrToObj(result));
-            }
-            else
-            {
-                // Fall back to slow/less reliable method
                 var rawValue = setting.Get();
-                var value = rawValue == null ? "NULL" : Convert.ToString(rawValue, CultureInfo.InvariantCulture).AppendZeroIfFloat(setting.SettingType);
-                if (CanCovert(value, setting.SettingType))
+                strVal = rawValue == null ? "NULL" : Convert.ToString(rawValue, CultureInfo.InvariantCulture);
+                _tempStrings[setting] = strVal;
+            }
+
+            var isError = _errorMessages.ContainsKey(setting);
+            var origColor = GUI.color;
+            if (isError) GUI.color = Color.red;
+
+            var result = GUILayout.TextField(strVal, GUILayout.Width(rightColumnWidth), GUILayout.MaxWidth(rightColumnWidth));
+            GUI.color = origColor;
+
+            if (result != strVal)
+            {
+                _tempStrings[setting] = result;
+                _errorMessages.Remove(setting);
+            }
+
+            if (Event.current.isKey && (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter))
+            {
+                try
                 {
-                    var result = GUILayout.TextField(value, GUILayout.Width(rightColumnWidth), GUILayout.MaxWidth(rightColumnWidth));
-                    if (result != value)
-                        setting.Set(Convert.ChangeType(result, setting.SettingType, CultureInfo.InvariantCulture));
+                    var cleanStr = _tempStrings[setting].Replace(',', '.');
+                    if (setting.StrToObj != null)
+                    {
+                        setting.Set(setting.StrToObj(cleanStr));
+                    }
+                    else
+                    {
+                        setting.Set(Convert.ChangeType(cleanStr, setting.SettingType, CultureInfo.InvariantCulture));
+                    }
+                    _tempStrings[setting] = Convert.ToString(setting.Get(), CultureInfo.InvariantCulture);
+                    _errorMessages.Remove(setting);
+                    GUI.FocusControl(null);
                 }
-                else
+                catch
                 {
-                    GUILayout.TextArea(value, GUILayout.MaxWidth(rightColumnWidth));
+                    _errorMessages[setting] = "Invalid format";
                 }
             }
 

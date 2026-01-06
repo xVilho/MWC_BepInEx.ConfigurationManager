@@ -19,6 +19,18 @@ The manager is accessed in-game by pressing **F1** (default).
 - Start the game and press **F1** to open the menu.
 
 ## Changelog
+### v18.4.2
+- **Game Pausing:** The game is now automatically paused when the configuration manager is open.
+- **Improved Mouse & Camera Handling:**
+  - Mouse position is "frozen" while the GUI is open to prevent the game from reacting to mouse movements.
+  - Improved camera disabling logic: Camera and MouseLook scripts are now temporarily disabled when the menu is open, preventing camera drift.
+  - Enhanced input blocking for all mouse-related axes.
+- **Better Input Fields:**
+  - Numerical and text input fields now require pressing **Enter** to commit changes, preventing accidental updates while typing.
+  - Added visual error feedback (red text) for invalid input formats.
+  - Automatically handles decimal separator differences (comma vs. dot).
+  - Improved UI focus management in the settings list.
+
 ### v18.4.1 (MWC Edition)
 - **Specialized for My Winter Car:** Optimized for MWC's Unity version and Mono environment.
 - **Mouse Fix:** Forced cursor visibility and unlocked state while the GUI is open.

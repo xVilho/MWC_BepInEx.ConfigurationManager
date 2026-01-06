@@ -25,6 +25,8 @@ namespace ConfigurationManager
     public class ConfigurationManager : BaseUnityPlugin
     {
         internal static ConfigurationManager Instance;
+        internal static Vector3 _frozenMousePos;
+        internal static bool _isRenderingGui;
         /// <summary>
         /// GUID of this plugin
         /// </summary>
@@ -135,7 +137,9 @@ namespace ConfigurationManager
                 harmony.PatchAll(typeof(ScreenPatch));
                 harmony.PatchAll(typeof(CursorSetCursorPatch));
                 harmony.PatchAll(typeof(InputPatch));
-
+                harmony.PatchAll(typeof(MousePositionPatch));
+                harmony.PatchAll(typeof(TimeScalePatch));
+                
                 // Apply PlayMakerGUI patches
                 if (pmGuiType != null)
                 {
@@ -147,21 +151,19 @@ namespace ConfigurationManager
                     Logger.LogInfo("Configuration Manager: Patched PlayMakerGUI");
                 }
 
-                // Apply cInput patches
-                if (cInputType != null)
-                {
-                    InputPatch.PatchCInput(harmony, cInputType);
-                    Logger.LogInfo("Configuration Manager: Patched cInput");
-                }
+                InputPatch.PatchCInput(harmony, cInputType);
 
                 // Apply MouseLook patches
-                foreach (var typeName in mouseLookTypes)
+                var methods = new[] { "Update", "LateUpdate", "FixedUpdate" };
+                foreach (var type in allTypes)
                 {
-                    var t = allTypes.FirstOrDefault(x => x.Name == typeName);
-                    if (t != null)
+                    if (type.Name.Contains("MouseLook") || type.Name == "MainCamera")
                     {
-                        var update = t.GetMethod("Update", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                        if (update != null) harmony.Patch(update, new HarmonyMethod(typeof(MouseLookPatch), nameof(MouseLookPatch.Prefix)));
+                        foreach (var methodName in methods)
+                        {
+                            var method = type.GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                            if (method != null) harmony.Patch(method, new HarmonyMethod(typeof(MouseLookPatch), nameof(MouseLookPatch.Prefix)));
+                        }
                     }
                 }
                 
@@ -172,6 +174,9 @@ namespace ConfigurationManager
                 Logger.LogError("Failed to apply Harmony patches: " + ex);
             }
         }
+
+        private List<Behaviour> _disabledCameraComponents = new List<Behaviour>();
+        private float _previousTimeScale = 1f;
 
         /// <summary>
         /// Is the config manager main window displayed on screen
@@ -192,10 +197,45 @@ namespace ConfigurationManager
                     BuildSettingList();
                     _previousCursorLockState = Cursor.lockState;
                     _previousCursorVisible = Cursor.visible;
+                    _previousTimeScale = Time.timeScale;
+                    _frozenMousePos = Input.mousePosition;
                     SetUnlockCursor(CursorLockMode.None, true);
+                    Time.timeScale = 0f;
+
+                    try
+                    {
+                        var objectsToSearch = new List<GameObject>();
+                        if (Camera.main != null) objectsToSearch.Add(Camera.main.gameObject);
+                        
+                        var playerGo = GameObject.Find("PLAYER");
+                        if (playerGo != null) objectsToSearch.Add(playerGo);
+
+                        var typesToDisable = new[] { "MouseLook", "SmoothMouseLook", "SimpleSmoothMouseLook", "MainCamera" };
+                        
+                        foreach (var go in objectsToSearch)
+                        {
+                            var behaviours = go.GetComponentsInChildren<Behaviour>(true);
+                            foreach (var comp in behaviours)
+                            {
+                                if (comp != null && comp.enabled && typesToDisable.Contains(comp.GetType().Name))
+                                {
+                                    comp.enabled = false;
+                                    _disabledCameraComponents.Add(comp);
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex) { Logger.LogDebug("Failed to disable camera components: " + ex.Message); }
                 }
                 else
                 {
+                    Time.timeScale = _previousTimeScale;
+                    foreach (var comp in _disabledCameraComponents)
+                    {
+                        if (comp != null) comp.enabled = true;
+                    }
+                    _disabledCameraComponents.Clear();
+
                     SetUnlockCursor(_previousCursorLockState, _previousCursorVisible);
                 }
 
@@ -328,11 +368,13 @@ namespace ConfigurationManager
             {
                 if (DisplayingWindow)
                 {
+                    _isRenderingGui = true;
                     SetUnlockCursor(CursorLockMode.None, true);
 
                     if (Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Escape)
                     {
                         DisplayingWindow = false;
+                        _isRenderingGui = false;
                         Event.current.Use();
                         return;
                     }
@@ -349,6 +391,7 @@ namespace ConfigurationManager
                             if (!SettingWindowRect.Contains(mousePosition))
                             {
                                 DisplayingWindow = false;
+                                _isRenderingGui = false;
                                 return;
                             }
                         }
@@ -364,10 +407,12 @@ namespace ConfigurationManager
                             GUI.FocusControl(null);
                         }
                     }
+                    _isRenderingGui = false;
                 }
             }
             catch (Exception ex)
             {
+                _isRenderingGui = false;
                 Logger.LogError("Error in OnGUI: " + ex);
             }
         }
@@ -772,9 +817,39 @@ namespace ConfigurationManager
             }
         }
 
+        private void DisableCameraComponents()
+        {
+            try
+            {
+                var objectsToSearch = new List<GameObject>();
+                if (Camera.main != null) objectsToSearch.Add(Camera.main.gameObject);
+                var playerGo = GameObject.Find("PLAYER");
+                if (playerGo != null) objectsToSearch.Add(playerGo);
+
+                foreach (var go in objectsToSearch)
+                {
+                    var behaviours = go.GetComponentsInChildren<Behaviour>(true);
+                    foreach (var comp in behaviours)
+                    {
+                        if (comp == null || !comp.enabled) continue;
+                        string name = comp.GetType().Name;
+                        if (name.Contains("MouseLook") || name == "MainCamera")
+                        {
+                            comp.enabled = false;
+                            _disabledCameraComponents.Add(comp);
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
         private void LateUpdate()
         {
-            if (DisplayingWindow) SetUnlockCursor(CursorLockMode.None, true);
+            if (DisplayingWindow)
+            {
+                SetUnlockCursor(CursorLockMode.None, true);
+            }
         }
 
         private void SetUnlockCursor(CursorLockMode lockState, bool cursorVisible)
@@ -878,6 +953,37 @@ namespace ConfigurationManager
         }
     }
 
+    [HarmonyPatch(typeof(Input))]
+    internal static class MousePositionPatch
+    {
+        [HarmonyPatch(nameof(Input.mousePosition), MethodType.Getter)]
+        [HarmonyPrefix]
+        public static bool Prefix(ref Vector3 __result)
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
+            {
+                if (!ConfigurationManager._isRenderingGui)
+                {
+                    __result = ConfigurationManager._frozenMousePos;
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+
+    [HarmonyPatch(typeof(Time))]
+    internal static class TimeScalePatch
+    {
+        [HarmonyPatch(nameof(Time.timeScale), MethodType.Setter)]
+        [HarmonyPrefix]
+        public static void Prefix(ref float value)
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
+                value = 0f;
+        }
+    }
+
     internal static class PlayMakerGUIPatch
     {
         public static void Patch(Harmony harmony, Type pmGuiType)
@@ -921,7 +1027,7 @@ namespace ConfigurationManager
         {
             if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
             {
-                if (axisName == "Mouse X" || axisName == "Mouse Y")
+                if (axisName != null && axisName.StartsWith("Mouse"))
                 {
                     __result = 0f;
                     return false;
@@ -936,7 +1042,7 @@ namespace ConfigurationManager
         {
             if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
             {
-                if (axisName == "Mouse X" || axisName == "Mouse Y")
+                if (axisName != null && axisName.StartsWith("Mouse"))
                 {
                     __result = 0f;
                     return false;
