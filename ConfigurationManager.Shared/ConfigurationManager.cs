@@ -130,7 +130,6 @@ namespace ConfigurationManager
 
                 var pmGuiType = allTypes.FirstOrDefault(t => t.Name == "PlayMakerGUI");
                 var cInputType = allTypes.FirstOrDefault(t => t.Name == "cInput");
-                var mouseLookTypes = new[] { "MouseLook", "SmoothMouseLook", "SimpleSmoothMouseLook" };
 
                 // Apply standard patches
                 harmony.PatchAll(typeof(CursorPatch));
@@ -156,7 +155,7 @@ namespace ConfigurationManager
                 var methods = new[] { "Update", "LateUpdate", "FixedUpdate" };
                 foreach (var type in allTypes)
                 {
-                    if (type.Name.Contains("MouseLook") || type.Name == "MainCamera")
+                    if (IsCameraType(type.Name))
                     {
                         foreach (var methodName in methods)
                         {
@@ -198,30 +197,7 @@ namespace ConfigurationManager
                     _frozenMousePos = Input.mousePosition;
                     SetUnlockCursor(CursorLockMode.None, true);
 
-                    try
-                    {
-                        var objectsToSearch = new List<GameObject>();
-                        if (Camera.main != null) objectsToSearch.Add(Camera.main.gameObject);
-                        
-                        var playerGo = GameObject.Find("PLAYER");
-                        if (playerGo != null) objectsToSearch.Add(playerGo);
-
-                        var typesToDisable = new[] { "MouseLook", "SmoothMouseLook", "SimpleSmoothMouseLook", "MainCamera" };
-                        
-                        foreach (var go in objectsToSearch)
-                        {
-                            var behaviours = go.GetComponentsInChildren<Behaviour>(true);
-                            foreach (var comp in behaviours)
-                            {
-                                if (comp != null && comp.enabled && typesToDisable.Contains(comp.GetType().Name))
-                                {
-                                    comp.enabled = false;
-                                    _disabledCameraComponents.Add(comp);
-                                }
-                            }
-                        }
-                    }
-                    catch (Exception ex) { Logger.LogDebug("Failed to disable camera components: " + ex.Message); }
+                    DisableCameraComponents();
                 }
                 else
                 {
@@ -393,6 +369,13 @@ namespace ConfigurationManager
                     }
 
                     var newRect = GUILayout.Window(WindowId, SettingWindowRect, (GUI.WindowFunction)SettingsWindow, "Plugin / mod settings");
+
+                    if (newRect.x != SettingWindowRect.x || newRect.y != SettingWindowRect.y)
+                    {
+                        SettingWindowRect = newRect;
+                        _windowWasMoved = true;
+                        _tipsWindowWasMoved = true;
+                    }
 
                     // Clear focus if we clicked inside the window but not on a specific control
                     if (Event.current.type == EventType.MouseDown && SettingWindowRect.Contains(mousePosition))
@@ -785,8 +768,7 @@ namespace ConfigurationManager
         {
             try
             {
-                bool toggle = _keybind.Value.IsDown();
-                if (!toggle && OverrideHotkey) toggle = true;
+                bool toggle = !OverrideHotkey && _keybind.Value.IsDown();
 
                 if (toggle)
                 {
@@ -796,6 +778,7 @@ namespace ConfigurationManager
                 if (DisplayingWindow)
                 {
                     SetUnlockCursor(CursorLockMode.None, true);
+                    DisableCameraComponents();
 
                     if (Input.GetKeyDown(KeyCode.Escape))
                     {
@@ -812,31 +795,66 @@ namespace ConfigurationManager
             }
         }
 
+        private float _nextCameraSearchTime = 0f;
         private void DisableCameraComponents()
         {
             try
             {
                 var objectsToSearch = new List<GameObject>();
                 if (Camera.main != null) objectsToSearch.Add(Camera.main.gameObject);
+                
                 var playerGo = GameObject.Find("PLAYER");
                 if (playerGo != null) objectsToSearch.Add(playerGo);
 
+                var fpsCamera = GameObject.Find("FPSCamera");
+                if (fpsCamera != null) objectsToSearch.Add(fpsCamera);
+
+                if (Time.unscaledTime > _nextCameraSearchTime)
+                {
+                    _nextCameraSearchTime = Time.unscaledTime + 1f;
+                    foreach (var cam in UnityEngine.Object.FindObjectsOfType<Camera>())
+                    {
+                        if (cam != null && cam.enabled && cam.gameObject.activeInHierarchy)
+                            objectsToSearch.Add(cam.gameObject);
+                    }
+                }
+
                 foreach (var go in objectsToSearch)
                 {
+                    if (go == null) continue;
                     var behaviours = go.GetComponentsInChildren<Behaviour>(true);
                     foreach (var comp in behaviours)
                     {
                         if (comp == null || !comp.enabled) continue;
-                        string name = comp.GetType().Name;
-                        if (name.Contains("MouseLook") || name == "MainCamera")
+                        
+                        string typeName = comp.GetType().Name;
+                        if (IsCameraType(typeName))
                         {
                             comp.enabled = false;
-                            _disabledCameraComponents.Add(comp);
+                            if (!_disabledCameraComponents.Contains(comp))
+                                _disabledCameraComponents.Add(comp);
                         }
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Logger.LogDebug("Failed to disable camera components: " + ex.Message);
+            }
+        }
+
+        private static bool IsCameraType(string typeName)
+        {
+            return typeName.Contains("MouseLook") || 
+                   typeName.Contains("SmoothMouse") || 
+                   typeName.Contains("CameraController") ||
+                   typeName.Contains("CameraControl") ||
+                   typeName.Contains("Orbit") ||
+                   typeName.Contains("Look") ||
+                   typeName.Contains("Rotate") ||
+                   typeName.Contains("Pivot") ||
+                   typeName == "MainCamera" || 
+                   typeName == "FPSCamera";
         }
 
         private void LateUpdate()
@@ -1008,7 +1026,7 @@ namespace ConfigurationManager
         [HarmonyPrefix]
         public static bool PrefixGetAxis(string axisName, ref float __result)
         {
-            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow && !ConfigurationManager._isRenderingGui)
             {
                 if (axisName != null && axisName.StartsWith("Mouse"))
                 {
@@ -1023,7 +1041,7 @@ namespace ConfigurationManager
         [HarmonyPrefix]
         public static bool PrefixGetAxisRaw(string axisName, ref float __result)
         {
-            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow && !ConfigurationManager._isRenderingGui)
             {
                 if (axisName != null && axisName.StartsWith("Mouse"))
                 {
@@ -1034,17 +1052,97 @@ namespace ConfigurationManager
             return true;
         }
 
+        [HarmonyPatch(nameof(Input.GetMouseButton))]
+        [HarmonyPrefix]
+        public static bool PrefixGetMouseButton(ref bool __result)
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow && !ConfigurationManager._isRenderingGui)
+            {
+                __result = false;
+                return false;
+            }
+            return true;
+        }
+
+        [HarmonyPatch(nameof(Input.GetMouseButtonDown))]
+        [HarmonyPrefix]
+        public static bool PrefixGetMouseButtonDown(ref bool __result)
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow && !ConfigurationManager._isRenderingGui)
+            {
+                __result = false;
+                return false;
+            }
+            return true;
+        }
+
+        [HarmonyPatch(nameof(Input.GetMouseButtonUp))]
+        [HarmonyPrefix]
+        public static bool PrefixGetMouseButtonUp(ref bool __result)
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow && !ConfigurationManager._isRenderingGui)
+            {
+                __result = false;
+                return false;
+            }
+            return true;
+        }
+
+        [HarmonyPatch(nameof(Input.GetButton))]
+        [HarmonyPrefix]
+        public static bool PrefixGetButton(ref bool __result)
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow && !ConfigurationManager._isRenderingGui)
+            {
+                __result = false;
+                return false;
+            }
+            return true;
+        }
+
+        [HarmonyPatch(nameof(Input.GetButtonDown))]
+        [HarmonyPrefix]
+        public static bool PrefixGetButtonDown(ref bool __result)
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow && !ConfigurationManager._isRenderingGui)
+            {
+                __result = false;
+                return false;
+            }
+            return true;
+        }
+
         public static void PatchCInput(Harmony harmony, Type cInputType)
         {
             try
             {
-                var getAxis = cInputType.GetMethod("GetAxis", BindingFlags.Static | BindingFlags.Public, null, new[] { typeof(string) }, null);
-                if (getAxis != null) harmony.Patch(getAxis, new HarmonyMethod(typeof(InputPatch), nameof(PrefixGetAxis)));
-
-                var getAxisRaw = cInputType.GetMethod("GetAxisRaw", BindingFlags.Static | BindingFlags.Public, null, new[] { typeof(string) }, null);
-                if (getAxisRaw != null) harmony.Patch(getAxisRaw, new HarmonyMethod(typeof(InputPatch), nameof(PrefixGetAxisRaw)));
+                if (cInputType == null) return;
+                
+                var methods = new[] { "GetAxis", "GetAxisRaw", "GetButton", "GetButtonDown", "GetButtonUp" };
+                foreach (var methodName in methods)
+                {
+                    var method = cInputType.GetMethod(methodName, BindingFlags.Static | BindingFlags.Public);
+                    if (method != null) harmony.Patch(method, new HarmonyMethod(typeof(InputPatch), nameof(PrefixCInput)));
+                }
             }
             catch { }
+        }
+
+        public static bool PrefixCInput(ref float __result, MethodBase __originalMethod)
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow && !ConfigurationManager._isRenderingGui)
+            {
+                if (__originalMethod.Name.StartsWith("GetButton"))
+                {
+                    __result = 0f; // cInput GetButton returns float sometimes? Or bool? 
+                }
+                else if (__originalMethod.Name.StartsWith("GetAxis"))
+                {
+                    __result = 0f;
+                }
+                return false;
+            }
+            return true;
         }
     }
 
