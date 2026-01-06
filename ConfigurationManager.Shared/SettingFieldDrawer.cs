@@ -50,8 +50,16 @@ namespace ConfigurationManager
             _instance = instance;
         }
 
+        private readonly HashSet<SettingEntryBase> _hookedSettings = new HashSet<SettingEntryBase>();
+
         public void DrawSettingValue(SettingEntryBase setting)
         {
+            if (!_hookedSettings.Contains(setting))
+            {
+                setting.SettingChanged += HandleSettingChanged;
+                _hookedSettings.Add(setting);
+            }
+
             if (setting.CustomDrawer != null)
                 setting.CustomDrawer(setting is ConfigSettingEntry newSetting ? newSetting.Entry : null);
             else if (setting.CustomHotkeyDrawer != null)
@@ -86,6 +94,21 @@ namespace ConfigurationManager
             foreach (var tex in _colorCache)
                 UnityEngine.Object.Destroy(tex.Value.Tex);
             _colorCache.Clear();
+
+            if (_instance != null && _instance.FieldDrawer != null)
+                _instance.FieldDrawer._hookedSettings.Clear();
+        }
+
+        private void HandleSettingChanged(SettingEntryBase setting)
+        {
+            _tempStrings.Remove(setting);
+            _errorMessages.Remove(setting);
+            _comboBoxCache.Remove(setting);
+            // Color cache is handled in DrawColor usually, but let's be safe
+            if (_colorCache.TryGetValue(setting, out var colorCache))
+            {
+                colorCache.Last = new Color(-1, -1, -1, -1); // Force redraw
+            }
         }
 
         public static void DrawCenteredLabel(string text, params GUILayoutOption[] options)

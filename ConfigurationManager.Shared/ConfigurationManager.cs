@@ -39,6 +39,7 @@ namespace ConfigurationManager
 
         internal static new ManualLogSource Logger;
         private static SettingFieldDrawer _fieldDrawer;
+        internal SettingFieldDrawer FieldDrawer => _fieldDrawer;
 
         private static readonly Color _advancedSettingColor = new Color(1f, 0.95f, 0.67f, 1f);
         private const int WindowId = -68;

@@ -121,12 +121,28 @@ namespace ConfigurationManager
         public abstract object Get();
 
         /// <summary>
+        /// Event fired when the setting value is changed.
+        /// </summary>
+        public event Action<SettingEntryBase> SettingChanged;
+
+        /// <summary>
+        /// Notify that the setting value has changed.
+        /// </summary>
+        public void NotifySettingChanged()
+        {
+            SettingChanged?.Invoke(this);
+        }
+
+        /// <summary>
         /// Set the value of this setting
         /// </summary>
         public void Set(object newVal)
         {
             if (ReadOnly != true)
+            {
                 SetValue(newVal);
+                NotifySettingChanged();
+            }
         }
 
         /// <summary>
