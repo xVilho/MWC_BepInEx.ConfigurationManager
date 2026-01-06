@@ -189,8 +189,9 @@ namespace ConfigurationManager
 
                 SettingFieldDrawer.ClearCache();
 
-                if (DisplayingWindow)
+                if (_displayingWindow)
                 {
+                    CalculateWindowRect();
                     BuildSettingList();
                     _previousCursorLockState = Cursor.lockState;
                     _previousCursorVisible = Cursor.visible;
