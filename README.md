@@ -8,7 +8,6 @@ The manager is accessed in-game by pressing **F6** (default). This can be change
 ![Configuration manager](Screenshot.PNG)
 
 ### Key Features for My Winter Car:
-- **Automatic Game Pause:** The game is automatically paused (Time.timeScale = 0) when the manager is open.
 - **Forced Mouse Usage:** The mouse cursor is automatically enabled and unlocked whenever the manager window is open.
 - **Input & Camera Blocking:** Prevents the player camera and other mouse-look scripts from moving while the menu is open.
 - **Robust Input Fields:** Numerical and text inputs require **Enter** to commit, preventing accidental changes and handling different regional decimal formats.
@@ -21,10 +20,10 @@ The manager is accessed in-game by pressing **F6** (default). This can be change
 - Start the game and press **F6** to open the menu.
 
 ## Changelog
-### v18.4.3
-- **Keybind Cleanup:** Removed hardcoded F1 and F5 keybinds. **F6** is now the sole default keybind, and it can be fully customized through the configuration.
+### v18.4.4
+- **Game Pausing Reverted:** The game no longer pauses when the manager is open, as it caused issues. Only camera and player movement are now blocked.
 
-### v18.4.2
+### v18.4.3
 - **Game Pausing:** The game is now automatically paused when the configuration manager is open.
 - **Improved Mouse & Camera Handling:**
   - Mouse position is "frozen" while the GUI is open to prevent the game from reacting to mouse movements.

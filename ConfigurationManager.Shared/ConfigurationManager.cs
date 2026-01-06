@@ -138,7 +138,6 @@ namespace ConfigurationManager
                 harmony.PatchAll(typeof(CursorSetCursorPatch));
                 harmony.PatchAll(typeof(InputPatch));
                 harmony.PatchAll(typeof(MousePositionPatch));
-                harmony.PatchAll(typeof(TimeScalePatch));
                 
                 // Apply PlayMakerGUI patches
                 if (pmGuiType != null)
@@ -176,7 +175,6 @@ namespace ConfigurationManager
         }
 
         private List<Behaviour> _disabledCameraComponents = new List<Behaviour>();
-        private float _previousTimeScale = 1f;
 
         /// <summary>
         /// Is the config manager main window displayed on screen
@@ -191,16 +189,13 @@ namespace ConfigurationManager
 
                 SettingFieldDrawer.ClearCache();
 
-                if (_displayingWindow)
+                if (DisplayingWindow)
                 {
-                    CalculateWindowRect();
                     BuildSettingList();
                     _previousCursorLockState = Cursor.lockState;
                     _previousCursorVisible = Cursor.visible;
-                    _previousTimeScale = Time.timeScale;
                     _frozenMousePos = Input.mousePosition;
                     SetUnlockCursor(CursorLockMode.None, true);
-                    Time.timeScale = 0f;
 
                     try
                     {
@@ -229,7 +224,6 @@ namespace ConfigurationManager
                 }
                 else
                 {
-                    Time.timeScale = _previousTimeScale;
                     foreach (var comp in _disabledCameraComponents)
                     {
                         if (comp != null) comp.enabled = true;
@@ -969,18 +963,6 @@ namespace ConfigurationManager
                 }
             }
             return true;
-        }
-    }
-
-    [HarmonyPatch(typeof(Time))]
-    internal static class TimeScalePatch
-    {
-        [HarmonyPatch(nameof(Time.timeScale), MethodType.Setter)]
-        [HarmonyPrefix]
-        public static void Prefix(ref float value)
-        {
-            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
-                value = 0f;
         }
     }
 
