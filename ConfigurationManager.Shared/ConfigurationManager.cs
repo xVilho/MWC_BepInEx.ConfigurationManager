@@ -133,8 +133,8 @@ namespace ConfigurationManager
                 var cInputType = allTypes.FirstOrDefault(t => t.Name == "cInput");
 
                 // Apply standard patches
-                harmony.PatchAll(typeof(CursorPatch));
-                harmony.PatchAll(typeof(ScreenPatch));
+                CursorPatch.Patch(harmony);
+                ScreenPatch.Patch(harmony);
                 harmony.PatchAll(typeof(CursorSetCursorPatch));
                 harmony.PatchAll(typeof(InputPatch));
                 harmony.PatchAll(typeof(MousePositionPatch));
@@ -915,19 +915,29 @@ namespace ConfigurationManager
         }
     }
 
-    [HarmonyPatch(typeof(Cursor))]
     internal static class CursorPatch
     {
-        [HarmonyPatch(nameof(Cursor.visible), MethodType.Setter)]
-        [HarmonyPrefix]
+        public static void Patch(Harmony harmony)
+        {
+            try
+            {
+                var visibleSetter = typeof(Cursor).GetProperty(nameof(Cursor.visible), BindingFlags.Static | BindingFlags.Public)?.GetSetMethod();
+                if (visibleSetter != null)
+                    harmony.Patch(visibleSetter, new HarmonyMethod(typeof(CursorPatch), nameof(PrefixVisible)));
+
+                var lockStateSetter = typeof(Cursor).GetProperty(nameof(Cursor.lockState), BindingFlags.Static | BindingFlags.Public)?.GetSetMethod();
+                if (lockStateSetter != null)
+                    harmony.Patch(lockStateSetter, new HarmonyMethod(typeof(CursorPatch), nameof(PrefixLockState)));
+            }
+            catch { }
+        }
+
         public static void PrefixVisible(ref bool value)
         {
             if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
                 value = true;
         }
 
-        [HarmonyPatch(nameof(Cursor.lockState), MethodType.Setter)]
-        [HarmonyPrefix]
         public static void PrefixLockState(ref CursorLockMode value)
         {
             if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
@@ -935,19 +945,29 @@ namespace ConfigurationManager
         }
     }
 
-    [HarmonyPatch(typeof(Screen))]
     internal static class ScreenPatch
     {
-        [HarmonyPatch("lockCursor", MethodType.Setter)]
-        [HarmonyPrefix]
+        public static void Patch(Harmony harmony)
+        {
+            try
+            {
+                var lockCursorSetter = typeof(Screen).GetProperty("lockCursor", BindingFlags.Static | BindingFlags.Public)?.GetSetMethod();
+                if (lockCursorSetter != null)
+                    harmony.Patch(lockCursorSetter, new HarmonyMethod(typeof(ScreenPatch), nameof(PrefixLockCursor)));
+
+                var showCursorSetter = typeof(Screen).GetProperty("showCursor", BindingFlags.Static | BindingFlags.Public)?.GetSetMethod();
+                if (showCursorSetter != null)
+                    harmony.Patch(showCursorSetter, new HarmonyMethod(typeof(ScreenPatch), nameof(PrefixShowCursor)));
+            }
+            catch { }
+        }
+
         public static void PrefixLockCursor(ref bool value)
         {
             if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
                 value = false;
         }
 
-        [HarmonyPatch("showCursor", MethodType.Setter)]
-        [HarmonyPrefix]
         public static void PrefixShowCursor(ref bool value)
         {
             if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
