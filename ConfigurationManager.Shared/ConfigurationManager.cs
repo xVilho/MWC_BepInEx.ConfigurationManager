@@ -12,6 +12,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
+using HarmonyLib;
 
 namespace ConfigurationManager
 {
@@ -23,6 +24,7 @@ namespace ConfigurationManager
     [Browsable(false)]
     public class ConfigurationManager : BaseUnityPlugin
     {
+        internal static ConfigurationManager Instance;
         /// <summary>
         /// GUID of this plugin
         /// </summary>
@@ -80,6 +82,10 @@ namespace ConfigurationManager
         internal int LeftColumnWidth { get; private set; }
         internal int RightColumnWidth { get; private set; }
 
+        private static PropertyInfo _screenShowCursor;
+        private static PropertyInfo _pmGuiLockCursor, _pmGuiHideCursor;
+        private static FieldInfo _pmGuiLockCursorField, _pmGuiHideCursorField;
+
         private readonly ConfigEntry<bool> _showAdvanced;
         private readonly ConfigEntry<bool> _showKeybinds;
         private readonly ConfigEntry<bool> _showSettings;
@@ -91,17 +97,80 @@ namespace ConfigurationManager
         /// <inheritdoc />
         public ConfigurationManager()
         {
+            Instance = this;
             Logger = base.Logger;
             _fieldDrawer = new SettingFieldDrawer(this);
 
             _showAdvanced = Config.Bind("Filtering", "Show advanced", false);
             _showKeybinds = Config.Bind("Filtering", "Show keybinds", true);
             _showSettings = Config.Bind("Filtering", "Show settings", true);
-            _keybind = Config.Bind("General", "Show config manager", new KeyboardShortcut(KeyCode.F1),
+            _keybind = Config.Bind("General", "Show config manager", new KeyboardShortcut(KeyCode.F6),
                 new ConfigDescription("The shortcut used to toggle the config manager window on and off.\n" +
                                       "The key can be overridden by a game-specific plugin if necessary, in that case this setting is ignored."));
             _hideSingleSection = Config.Bind("General", "Hide single sections", false, new ConfigDescription("Show section title for plugins with only one section"));
             _pluginConfigCollapsedDefault = Config.Bind("General", "Plugin collapsed default", true, new ConfigDescription("If set to true plugins will be collapsed when opening the configuration manager window"));
+        }
+
+        private void Awake()
+        {
+            Instance = this;
+            Logger.LogInfo("Configuration Manager: Initializing patches...");
+            try
+            {
+                var harmony = new Harmony(GUID);
+                
+                // One-pass assembly scan for all required types
+                var allTypes = AppDomain.CurrentDomain.GetAssemblies()
+                    .SelectMany(a => {
+                        try { return a.GetTypes(); }
+                        catch { return new Type[0]; }
+                    }).ToList();
+
+                var pmGuiType = allTypes.FirstOrDefault(t => t.Name == "PlayMakerGUI");
+                var cInputType = allTypes.FirstOrDefault(t => t.Name == "cInput");
+                var mouseLookTypes = new[] { "MouseLook", "SmoothMouseLook", "SimpleSmoothMouseLook" };
+
+                // Apply standard patches
+                harmony.PatchAll(typeof(CursorPatch));
+                harmony.PatchAll(typeof(ScreenPatch));
+                harmony.PatchAll(typeof(CursorSetCursorPatch));
+                harmony.PatchAll(typeof(InputPatch));
+
+                // Apply PlayMakerGUI patches
+                if (pmGuiType != null)
+                {
+                    _pmGuiLockCursor = pmGuiType.GetProperty("LockCursor", BindingFlags.Static | BindingFlags.Public);
+                    _pmGuiHideCursor = pmGuiType.GetProperty("HideCursor", BindingFlags.Static | BindingFlags.Public);
+                    _pmGuiLockCursorField = pmGuiType.GetField("LockCursor", BindingFlags.Static | BindingFlags.Public);
+                    _pmGuiHideCursorField = pmGuiType.GetField("HideCursor", BindingFlags.Static | BindingFlags.Public);
+                    PlayMakerGUIPatch.Patch(harmony, pmGuiType);
+                    Logger.LogInfo("Configuration Manager: Patched PlayMakerGUI");
+                }
+
+                // Apply cInput patches
+                if (cInputType != null)
+                {
+                    InputPatch.PatchCInput(harmony, cInputType);
+                    Logger.LogInfo("Configuration Manager: Patched cInput");
+                }
+
+                // Apply MouseLook patches
+                foreach (var typeName in mouseLookTypes)
+                {
+                    var t = allTypes.FirstOrDefault(x => x.Name == typeName);
+                    if (t != null)
+                    {
+                        var update = t.GetMethod("Update", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                        if (update != null) harmony.Patch(update, new HarmonyMethod(typeof(MouseLookPatch), nameof(MouseLookPatch.Prefix)));
+                    }
+                }
+                
+                Logger.LogInfo("Configuration Manager: Initialization complete.");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("Failed to apply Harmony patches: " + ex);
+            }
         }
 
         /// <summary>
@@ -120,18 +189,14 @@ namespace ConfigurationManager
                 if (_displayingWindow)
                 {
                     CalculateWindowRect();
-
                     BuildSettingList();
-
-                    _focusSearchBox = true;
-
                     _previousCursorLockState = Cursor.lockState;
                     _previousCursorVisible = Cursor.visible;
+                    SetUnlockCursor(CursorLockMode.None, true);
                 }
                 else
                 {
-                    if (!_previousCursorVisible || _previousCursorLockState != CursorLockMode.None)
-                        SetUnlockCursor(_previousCursorLockState, _previousCursorVisible);
+                    SetUnlockCursor(_previousCursorLockState, _previousCursorVisible);
                 }
 
                 DisplayingWindowChanged?.Invoke(this, new ValueChangedEventArgs<bool>(value));
@@ -259,34 +324,51 @@ namespace ConfigurationManager
 
         private void OnGUI()
         {
-            if (DisplayingWindow)
+            try
             {
-                SetUnlockCursor(CursorLockMode.None, true);
-
-                Vector2 mousePosition = UnityInput.Current.mousePosition;
-                mousePosition.y = Screen.height - mousePosition.y;
-
-                // If the window hasn't been moved by the user yet, block the whole screen and use a solid background to make the window easier to see
-                if (!_windowWasMoved)
+                if (DisplayingWindow)
                 {
-                    if (GUI.Button(_screenRect, string.Empty, GUI.skin.box) && !SettingWindowRect.Contains(mousePosition))
+                    SetUnlockCursor(CursorLockMode.None, true);
+
+                    if (Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Escape)
+                    {
                         DisplayingWindow = false;
+                        Event.current.Use();
+                        return;
+                    }
 
-                    ImguiUtils.DrawWindowBackground(SettingWindowRect);
+                    Vector2 mousePosition = Input.mousePosition;
+                    mousePosition.y = Screen.height - mousePosition.y;
+
+                    // If the window hasn't been moved by the user yet, block the whole screen
+                    if (!_windowWasMoved)
+                    {
+                        // Use a transparent style for the background button
+                        if (GUI.Button(_screenRect, string.Empty, GUIStyle.none))
+                        {
+                            if (!SettingWindowRect.Contains(mousePosition))
+                            {
+                                DisplayingWindow = false;
+                                return;
+                            }
+                        }
+                    }
+
+                    var newRect = GUILayout.Window(WindowId, SettingWindowRect, (GUI.WindowFunction)SettingsWindow, "Plugin / mod settings");
+
+                    // Clear focus if we clicked inside the window but not on a specific control
+                    if (Event.current.type == EventType.MouseDown && SettingWindowRect.Contains(mousePosition))
+                    {
+                        if (GUIUtility.hotControl == 0)
+                        {
+                            GUI.FocusControl(null);
+                        }
+                    }
                 }
-
-                var newRect = GUILayout.Window(WindowId, SettingWindowRect, (GUI.WindowFunction)SettingsWindow, "Plugin / mod settings");
-
-                if (newRect != SettingWindowRect)
-                {
-                    _windowWasMoved = true;
-                    SettingWindowRect = newRect;
-
-                    _tipsWindowWasMoved = true;
-                }
-
-                if (!SettingFieldDrawer.SettingKeyboardShortcut && (!_windowWasMoved || SettingWindowRect.Contains(mousePosition)))
-                    Input.ResetInputAxes();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("Error in OnGUI: " + ex);
             }
         }
 
@@ -322,76 +404,84 @@ namespace ConfigurationManager
 
         private void SettingsWindow(int id)
         {
-            DrawWindowHeader();
-
-            _settingWindowScrollPos = GUILayout.BeginScrollView(_settingWindowScrollPos, false, true);
-
-            var scrollPosition = _settingWindowScrollPos.y;
-            var scrollHeight = SettingWindowRect.height;
-
-            GUILayout.BeginVertical();
+            try
             {
-                if (string.IsNullOrEmpty(SearchString))
+                DrawWindowHeader();
+
+                _settingWindowScrollPos = GUILayout.BeginScrollView(_settingWindowScrollPos, false, true);
+
+                var scrollPosition = _settingWindowScrollPos.y;
+                var scrollHeight = SettingWindowRect.height;
+
+                GUILayout.BeginVertical();
                 {
-                    DrawTips();
-
-                    if (_tipsHeight == 0 && Event.current.type == EventType.Repaint)
-                        _tipsHeight = (int)GUILayoutUtility.GetLastRect().height;
-                }
-
-                var currentHeight = _tipsHeight;
-
-                foreach (var plugin in _filteredSetings)
-                {
-                    var visible = plugin.Height == 0 || currentHeight + plugin.Height >= scrollPosition && currentHeight <= scrollPosition + scrollHeight;
-
-                    if (visible)
+                    if (string.IsNullOrEmpty(SearchString))
                     {
-                        try
+                        DrawTips();
+
+                        if (_tipsHeight == 0 && Event.current.type == EventType.Repaint)
+                            _tipsHeight = (int)GUILayoutUtility.GetLastRect().height;
+                    }
+
+                    var currentHeight = _tipsHeight;
+
+                    foreach (var plugin in _filteredSetings)
+                    {
+                        var visible = plugin.Height == 0 || currentHeight + plugin.Height >= scrollPosition && currentHeight <= scrollPosition + scrollHeight;
+
+                        if (visible)
                         {
-                            DrawSinglePlugin(plugin);
+                            try
+                            {
+                                DrawSinglePlugin(plugin);
+                            }
+                            catch (ArgumentException)
+                            {
+                                // Needed to avoid GUILayout: Mismatched LayoutGroup.Repaint crashes on large lists
+                            }
+
+                            if (plugin.Height == 0 && Event.current.type == EventType.Repaint)
+                                plugin.Height = (int)GUILayoutUtility.GetLastRect().height;
                         }
-                        catch (ArgumentException)
+                        else
                         {
-                            // Needed to avoid GUILayout: Mismatched LayoutGroup.Repaint crashes on large lists
+                            try
+                            {
+                                GUILayout.Space(plugin.Height);
+                            }
+                            catch (ArgumentException)
+                            {
+                                // Needed to avoid GUILayout: Mismatched LayoutGroup.Repaint crashes on large lists
+                            }
                         }
 
-                        if (plugin.Height == 0 && Event.current.type == EventType.Repaint)
-                            plugin.Height = (int)GUILayoutUtility.GetLastRect().height;
+                        currentHeight += plugin.Height;
+                    }
+
+                    if (_showDebug)
+                    {
+                        GUILayout.Space(10);
+                        GUILayout.Label("Plugins with no options available: " + _modsWithoutSettings);
                     }
                     else
                     {
-                        try
-                        {
-                            GUILayout.Space(plugin.Height);
-                        }
-                        catch (ArgumentException)
-                        {
-                            // Needed to avoid GUILayout: Mismatched LayoutGroup.Repaint crashes on large lists
-                        }
+                        // Always leave some space in case there's a dropdown box at the very bottom of the list
+                        GUILayout.Space(70);
                     }
+                }
+                GUILayout.EndVertical();
+                GUILayout.EndScrollView();
 
-                    currentHeight += plugin.Height;
-                }
+                if (!SettingFieldDrawer.DrawCurrentDropdown())
+                    DrawTooltip(SettingWindowRect);
 
-                if (_showDebug)
-                {
-                    GUILayout.Space(10);
-                    GUILayout.Label("Plugins with no options available: " + _modsWithoutSettings);
-                }
-                else
-                {
-                    // Always leave some space in case there's a dropdown box at the very bottom of the list
-                    GUILayout.Space(70);
-                }
+                GUI.DragWindow();
             }
-            GUILayout.EndVertical();
-            GUILayout.EndScrollView();
-
-            if (!SettingFieldDrawer.DrawCurrentDropdown())
-                DrawTooltip(SettingWindowRect);
-
-            GUI.DragWindow();
+            catch (Exception ex)
+            {
+                GUILayout.Label("CRASH IN SettingsWindow: " + ex.Message);
+                Logger.LogError("SettingsWindow crash: " + ex);
+            }
         }
 
         private void DrawTips()
@@ -621,6 +711,30 @@ namespace ConfigurationManager
 
         private void Start()
         {
+            _screenShowCursor = typeof(Screen).GetProperty("showCursor", BindingFlags.Static | BindingFlags.Public);
+
+            try
+            {
+                var pmGuiType = AppDomain.CurrentDomain.GetAssemblies()
+                    .SelectMany(a =>
+                    {
+                        try { return a.GetTypes(); }
+                        catch { return new Type[0]; }
+                    })
+                    .FirstOrDefault(t => t.Name == "PlayMakerGUI");
+
+                if (pmGuiType != null)
+                {
+                    _pmGuiLockCursor = pmGuiType.GetProperty("LockCursor", BindingFlags.Static | BindingFlags.Public);
+                    _pmGuiHideCursor = pmGuiType.GetProperty("HideCursor", BindingFlags.Static | BindingFlags.Public);
+                    _pmGuiLockCursorField = pmGuiType.GetField("LockCursor", BindingFlags.Static | BindingFlags.Public);
+                    _pmGuiHideCursorField = pmGuiType.GetField("HideCursor", BindingFlags.Static | BindingFlags.Public);
+
+                    PlayMakerGUIPatch.Patch(new Harmony(GUID + ".pmgui"), pmGuiType);
+                }
+            }
+            catch (Exception ex) { Logger.LogDebug("Failed to find PlayMakerGUI: " + ex.Message); }
+
             // Check if user has permissions to write config files to disk
             try { Config.Save(); }
             catch (IOException ex) { Logger.Log(LogLevel.Message | LogLevel.Warning, "WARNING: Failed to write to config directory, expect issues!\nError message:" + ex.Message); }
@@ -629,11 +743,33 @@ namespace ConfigurationManager
 
         private void Update()
         {
-            if (DisplayingWindow) SetUnlockCursor(CursorLockMode.None, true);
+            try
+            {
+                bool toggle = Input.GetKeyDown(KeyCode.F6) || Input.GetKeyDown(KeyCode.F1) || Input.GetKeyDown(KeyCode.F5);
+                if (!toggle && !OverrideHotkey && _keybind.Value.IsDown()) toggle = true;
 
-            if (OverrideHotkey) return;
+                if (toggle)
+                {
+                    DisplayingWindow = !DisplayingWindow;
+                }
 
-            if (_keybind.Value.IsDown()) DisplayingWindow = !DisplayingWindow;
+                if (DisplayingWindow)
+                {
+                    SetUnlockCursor(CursorLockMode.None, true);
+
+                    if (Input.GetKeyDown(KeyCode.Escape))
+                    {
+                        if (SettingFieldDrawer.SettingKeyboardShortcut)
+                            SettingFieldDrawer.CancelSettingShortcut();
+                        else
+                            DisplayingWindow = false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("Error in Update: " + ex);
+            }
         }
 
         private void LateUpdate()
@@ -643,11 +779,25 @@ namespace ConfigurationManager
 
         private void SetUnlockCursor(CursorLockMode lockState, bool cursorVisible)
         {
-            Cursor.lockState = lockState;
-            Cursor.visible = cursorVisible;
+            try
+            {
+                Cursor.lockState = lockState;
+                Cursor.visible = cursorVisible;
 #pragma warning disable CS0618 // Type or member is obsolete
-            Screen.lockCursor = lockState != CursorLockMode.None;
+                Screen.lockCursor = lockState != CursorLockMode.None;
 #pragma warning restore CS0618 // Type or member is obsolete
+                _screenShowCursor?.SetValue(null, cursorVisible, null);
+
+                if (lockState == CursorLockMode.None && cursorVisible)
+                {
+                    Cursor.SetCursor(null, Vector2.zero, CursorMode.Auto);
+                    _pmGuiLockCursor?.SetValue(null, false, null);
+                    _pmGuiHideCursor?.SetValue(null, false, null);
+                    _pmGuiLockCursorField?.SetValue(null, false);
+                    _pmGuiHideCursorField?.SetValue(null, false);
+                }
+            }
+            catch { }
         }
 
         private sealed class PluginSettingsData
@@ -673,6 +823,149 @@ namespace ConfigurationManager
                 public string Name;
                 public List<SettingEntryBase> Settings;
             }
+        }
+    }
+
+    [HarmonyPatch(typeof(Cursor))]
+    internal static class CursorPatch
+    {
+        [HarmonyPatch(nameof(Cursor.visible), MethodType.Setter)]
+        [HarmonyPrefix]
+        public static void PrefixVisible(ref bool value)
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
+                value = true;
+        }
+
+        [HarmonyPatch(nameof(Cursor.lockState), MethodType.Setter)]
+        [HarmonyPrefix]
+        public static void PrefixLockState(ref CursorLockMode value)
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
+                value = CursorLockMode.None;
+        }
+    }
+
+    [HarmonyPatch(typeof(Screen))]
+    internal static class ScreenPatch
+    {
+        [HarmonyPatch("lockCursor", MethodType.Setter)]
+        [HarmonyPrefix]
+        public static void PrefixLockCursor(ref bool value)
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
+                value = false;
+        }
+
+        [HarmonyPatch("showCursor", MethodType.Setter)]
+        [HarmonyPrefix]
+        public static void PrefixShowCursor(ref bool value)
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
+                value = true;
+        }
+    }
+
+    [HarmonyPatch(typeof(Cursor))]
+    internal static class CursorSetCursorPatch
+    {
+        [HarmonyPatch(nameof(Cursor.SetCursor), typeof(Texture2D), typeof(Vector2), typeof(CursorMode))]
+        [HarmonyPrefix]
+        public static void Prefix(ref Texture2D __0)
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
+                __0 = null;
+        }
+    }
+
+    internal static class PlayMakerGUIPatch
+    {
+        public static void Patch(Harmony harmony, Type pmGuiType)
+        {
+            try
+            {
+                var lockCursorSetter = pmGuiType.GetProperty("LockCursor", BindingFlags.Static | BindingFlags.Public)?.GetSetMethod();
+                if (lockCursorSetter != null)
+                {
+                    harmony.Patch(lockCursorSetter, new HarmonyMethod(typeof(PlayMakerGUIPatch), nameof(PrefixLockCursor)));
+                }
+
+                var hideCursorSetter = pmGuiType.GetProperty("HideCursor", BindingFlags.Static | BindingFlags.Public)?.GetSetMethod();
+                if (hideCursorSetter != null)
+                {
+                    harmony.Patch(hideCursorSetter, new HarmonyMethod(typeof(PlayMakerGUIPatch), nameof(PrefixHideCursor)));
+                }
+            }
+            catch (Exception ex) { ConfigurationManager.Logger.LogDebug("Failed to patch PlayMakerGUI: " + ex.Message); }
+        }
+
+        public static void PrefixLockCursor(ref bool value)
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
+                value = false;
+        }
+
+        public static void PrefixHideCursor(ref bool value)
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
+                value = false;
+        }
+    }
+
+    [HarmonyPatch(typeof(Input))]
+    internal static class InputPatch
+    {
+        [HarmonyPatch(nameof(Input.GetAxis))]
+        [HarmonyPrefix]
+        public static bool PrefixGetAxis(string axisName, ref float __result)
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
+            {
+                if (axisName == "Mouse X" || axisName == "Mouse Y")
+                {
+                    __result = 0f;
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        [HarmonyPatch(nameof(Input.GetAxisRaw))]
+        [HarmonyPrefix]
+        public static bool PrefixGetAxisRaw(string axisName, ref float __result)
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
+            {
+                if (axisName == "Mouse X" || axisName == "Mouse Y")
+                {
+                    __result = 0f;
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        public static void PatchCInput(Harmony harmony, Type cInputType)
+        {
+            try
+            {
+                var getAxis = cInputType.GetMethod("GetAxis", BindingFlags.Static | BindingFlags.Public, null, new[] { typeof(string) }, null);
+                if (getAxis != null) harmony.Patch(getAxis, new HarmonyMethod(typeof(InputPatch), nameof(PrefixGetAxis)));
+
+                var getAxisRaw = cInputType.GetMethod("GetAxisRaw", BindingFlags.Static | BindingFlags.Public, null, new[] { typeof(string) }, null);
+                if (getAxisRaw != null) harmony.Patch(getAxisRaw, new HarmonyMethod(typeof(InputPatch), nameof(PrefixGetAxisRaw)));
+            }
+            catch { }
+        }
+    }
+
+    internal static class MouseLookPatch
+    {
+        public static bool Prefix()
+        {
+            if (ConfigurationManager.Instance != null && ConfigurationManager.Instance.DisplayingWindow)
+                return false;
+            return true;
         }
     }
 }

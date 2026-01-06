@@ -26,6 +26,7 @@ namespace ConfigurationManager
 
         private static SettingEntryBase _currentKeyboardShortcutToSet;
         public static bool SettingKeyboardShortcut => _currentKeyboardShortcutToSet != null;
+        public static void CancelSettingShortcut() => _currentKeyboardShortcutToSet = null;
 
         static SettingFieldDrawer()
         {
@@ -357,11 +358,10 @@ namespace ConfigurationManager
                 GUILayout.Label("Press any key", GUILayout.ExpandWidth(true));
                 GUIUtility.keyboardControl = -1;
 
-                var input = UnityInput.Current;
-                if (_keysToCheck == null) _keysToCheck = input.SupportedKeyCodes.Except(new[] { KeyCode.Mouse0, KeyCode.None }).ToArray();
+                if (_keysToCheck == null) _keysToCheck = ((KeyCode[])Enum.GetValues(typeof(KeyCode))).Except(new[] { KeyCode.Mouse0, KeyCode.None }).ToArray();
                 foreach (var key in _keysToCheck)
                 {
-                    if (input.GetKeyUp(key))
+                    if (Input.GetKeyUp(key))
                     {
                         setting.Set(key);
                         _currentKeyboardShortcutToSet = null;
@@ -388,13 +388,12 @@ namespace ConfigurationManager
                 GUILayout.Label("Press any key combination", GUILayout.ExpandWidth(true));
                 GUIUtility.keyboardControl = -1;
 
-                var input = UnityInput.Current;
-                if (_keysToCheck == null) _keysToCheck = input.SupportedKeyCodes.Except(new[] { KeyCode.Mouse0, KeyCode.None }).ToArray();
+                if (_keysToCheck == null) _keysToCheck = ((KeyCode[])Enum.GetValues(typeof(KeyCode))).Except(new[] { KeyCode.Mouse0, KeyCode.None }).ToArray();
                 foreach (var key in _keysToCheck)
                 {
-                    if (input.GetKeyUp(key))
+                    if (Input.GetKeyUp(key))
                     {
-                        setting.Set(new BepInEx.Configuration.KeyboardShortcut(key, _keysToCheck.Where(input.GetKey).ToArray()));
+                        setting.Set(new BepInEx.Configuration.KeyboardShortcut(key, _keysToCheck.Where(Input.GetKey).ToArray()));
                         _currentKeyboardShortcutToSet = null;
                         break;
                     }

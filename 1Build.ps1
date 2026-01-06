@@ -3,11 +3,11 @@
 # --- Configuration ---
 $projectRoot = $PSScriptRoot
 $buildConfig = "Release"    # Or "Debug"
-$framework = "net472"     # Or your target framework
+$framework = "net35"     # Or your target framework
 $buildPath = Join-Path $projectRoot "bin\$buildConfig\$framework"
 $targetPathIl2cpp = "C:\Program Files (x86)\Steam\steamapps\common\My Winter Car\BepInEx\plugins"
 $exePathIl2cpp = "C:\Program Files (x86)\Steam\steamapps\common\My Winter Car\mywintercar.exe"
-$csproj = "zzzmod.csproj"  # Relative to $projectRoot
+$csproj = "ConfigurationManager.sln"  # Relative to $projectRoot
 
 # Initialize error buffer
 $lastFilteredErrors = @()

@@ -19,6 +19,9 @@
     
 		<ImplicitUsings>disable</ImplicitUsings>
 		<Nullable>disable</Nullable>
+
+		<OutputPath>$(MSBuildThisFileDirectory)bin\$(Configuration)\$(TargetFramework)</OutputPath>
+		<ZipPostfix>_MWC</ZipPostfix>
 	</PropertyGroup>
 
 	<!-- Create a release zip file (after successful Release build) -->
