@@ -4,9 +4,9 @@
 		<Version>18.4.1</Version>
 
 		<!-- Sets the 'Product name' field on the dll file -->
-		<Product>BepInEx.ConfigurationManager</Product>
+		<Product>ConfigurationManager.MyWinterCar</Product>
 		<!-- Sets the 'File description' field on the dll file -->
-		<AssemblyTitle>Universal in-game configuration manager for BepInEx plugins</AssemblyTitle>
+		<AssemblyTitle>Configuration Manager for My Winter Car</AssemblyTitle>
 		<!-- Sets the 'Company' field on the dll file -->
 		<Authors>https://github.com/BepInEx/BepInEx.ConfigurationManager</Authors>
 		<!-- Sets the 'Copyright' field on the dll file -->

@@ -357,14 +357,6 @@ namespace ConfigurationManager
                 GUILayout.Label("Press any key", GUILayout.ExpandWidth(true));
                 GUIUtility.keyboardControl = -1;
 
-#if IL2CPP
-                KeyCode key = KeyboardShortcut.ModifierBlockKeyCodes.FirstOrDefault(Input.GetKeyUp);
-                if (key != KeyCode.None)
-                {
-                    setting.Set(key);
-                    _currentKeyboardShortcutToSet = null;
-                }
-#else
                 var input = UnityInput.Current;
                 if (_keysToCheck == null) _keysToCheck = input.SupportedKeyCodes.Except(new[] { KeyCode.Mouse0, KeyCode.None }).ToArray();
                 foreach (var key in _keysToCheck)
@@ -376,7 +368,6 @@ namespace ConfigurationManager
                         break;
                     }
                 }
-#endif
                 if (GUILayout.Button("Cancel", GUILayout.ExpandWidth(false)))
                     _currentKeyboardShortcutToSet = null;
             }
@@ -397,14 +388,6 @@ namespace ConfigurationManager
                 GUILayout.Label("Press any key combination", GUILayout.ExpandWidth(true));
                 GUIUtility.keyboardControl = -1;
 
-#if IL2CPP
-                KeyCode key = KeyboardShortcut.ModifierBlockKeyCodes.FirstOrDefault(Input.GetKeyUp);
-                if (key != KeyCode.None)
-                {
-                    setting.Set(new KeyboardShortcut(key, KeyboardShortcut.ModifierBlockKeyCodes.Where(Input.GetKey).ToArray()));
-                    _currentKeyboardShortcutToSet = null;
-                }
-#else
                 var input = UnityInput.Current;
                 if (_keysToCheck == null) _keysToCheck = input.SupportedKeyCodes.Except(new[] { KeyCode.Mouse0, KeyCode.None }).ToArray();
                 foreach (var key in _keysToCheck)
@@ -416,7 +399,6 @@ namespace ConfigurationManager
                         break;
                     }
                 }
-#endif
                 if (GUILayout.Button("Cancel", GUILayout.ExpandWidth(false)))
                     _currentKeyboardShortcutToSet = null;
             }

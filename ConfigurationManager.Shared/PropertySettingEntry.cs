@@ -2,10 +2,6 @@
 using System.Reflection;
 using BepInEx;
 
-#if IL2CPP
-using BaseUnityPlugin = BepInEx.PluginInfo;
-#endif
-
 namespace ConfigurationManager
 {
     internal class PropertySettingEntry : SettingEntryBase

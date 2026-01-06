@@ -11,10 +11,6 @@ using System.Linq;
 using System.Reflection;
 using UnityEngine;
 
-#if IL2CPP
-using BaseUnityPlugin = BepInEx.PluginInfo;
-#endif
-
 namespace ConfigurationManager.Utilities
 {
     internal static class Utils
@@ -141,11 +137,7 @@ namespace ConfigurationManager.Utilities
             if (bepInPlugin == null) return null;
             try
             {
-#if IL2CPP
-                var fileName = bepInPlugin.Location;//.Instance.GetType().Module.FullyQualifiedName;
-#else
                 var fileName = bepInPlugin.Info.Location; //.GetType().Assembly.Location;
-#endif
                 if (!File.Exists(fileName)) return null;
                 var fi = FileVersionInfo.GetVersionInfo(fileName);
                 return new[]
@@ -159,11 +151,7 @@ namespace ConfigurationManager.Utilities
             }
             catch (Exception e)
             {
-#if IL2CPP
-                ConfigurationManager.Logger.LogWarning($"Failed to get URI for {bepInPlugin.Metadata?.Name} - {e.Message}");
-#else
                 ConfigurationManager.Logger.LogWarning($"Failed to get URI for {bepInPlugin.Info?.Metadata?.Name} - {e.Message}");
-#endif
                 return null;
             }
         }
@@ -183,14 +171,7 @@ namespace ConfigurationManager.Utilities
 
         public static GUIStyle CreateCopy(this GUIStyle original)
         {
-#if IL2CPP
-            // Copy constructor is sometimes stripped out in IL2CPP
-            var guiStyle = new GUIStyle();
-            guiStyle.m_Ptr = GUIStyle.Internal_Copy(guiStyle, original);
-            return guiStyle;
-#else
             return new GUIStyle(original);
-#endif
         }
     }
 }

@@ -13,13 +13,6 @@ using System.Linq;
 using System.Reflection;
 using UnityEngine;
 
-#if IL2CPP
-using BepInEx.Unity.IL2CPP;
-using Il2CppInterop.Runtime;
-using Il2CppInterop.Runtime.Injection;
-using BaseUnityPlugin = BepInEx.Unity.IL2CPP.BasePlugin;
-#endif
-
 namespace ConfigurationManager
 {
     /// <summary>
@@ -40,7 +33,7 @@ namespace ConfigurationManager
         /// </summary>
         public const string Version = Constants.Version;
 
-        internal static ManualLogSource Logger;
+        internal static new ManualLogSource Logger;
         private static SettingFieldDrawer _fieldDrawer;
 
         private static readonly Color _advancedSettingColor = new Color(1f, 0.95f, 0.67f, 1f);
@@ -61,7 +54,6 @@ namespace ConfigurationManager
         public bool OverrideHotkey;
 
         private bool _displayingWindow;
-        private bool _obsoleteCursor;
 
         private string _modsWithoutSettings;
 
@@ -82,9 +74,7 @@ namespace ConfigurationManager
         private Vector2 _settingWindowScrollPos;
         private int _tipsHeight;
 
-        private PropertyInfo _curLockState;
-        private PropertyInfo _curVisible;
-        private int _previousCursorLockState;
+        private CursorLockMode _previousCursorLockState;
         private bool _previousCursorVisible;
 
         internal int LeftColumnWidth { get; private set; }
@@ -101,11 +91,7 @@ namespace ConfigurationManager
         /// <inheritdoc />
         public ConfigurationManager()
         {
-#if IL2CPP
-            Logger = Log;
-#else
             Logger = base.Logger;
-#endif
             _fieldDrawer = new SettingFieldDrawer(this);
 
             _showAdvanced = Config.Bind("Filtering", "Show advanced", false);
@@ -117,23 +103,6 @@ namespace ConfigurationManager
             _hideSingleSection = Config.Bind("General", "Hide single sections", false, new ConfigDescription("Show section title for plugins with only one section"));
             _pluginConfigCollapsedDefault = Config.Bind("General", "Plugin collapsed default", true, new ConfigDescription("If set to true plugins will be collapsed when opening the configuration manager window"));
         }
-
-#if IL2CPP
-        /// <inheritdoc/>
-        public override void Load()
-        {
-            ConfigurationManagerBehaviour.Plugin = this;
-            AddComponent<ConfigurationManagerBehaviour>();
-        }
-        private class ConfigurationManagerBehaviour : MonoBehaviour
-        {
-            internal static ConfigurationManager Plugin;
-            private void Start() => Plugin.Start();
-            private void Update() => Plugin.Update();
-            private void LateUpdate() => Plugin.LateUpdate();
-            private void OnGUI() => Plugin.OnGUI();
-        }
-#endif
 
         /// <summary>
         /// Is the config manager main window displayed on screen
@@ -156,16 +125,12 @@ namespace ConfigurationManager
 
                     _focusSearchBox = true;
 
-                    // Do through reflection for unity 4 compat
-                    if (_curLockState != null)
-                    {
-                        _previousCursorLockState = _obsoleteCursor ? Convert.ToInt32((bool)_curLockState.GetValue(null, null)) : (int)_curLockState.GetValue(null, null);
-                        _previousCursorVisible = (bool)_curVisible.GetValue(null, null);
-                    }
+                    _previousCursorLockState = Cursor.lockState;
+                    _previousCursorVisible = Cursor.visible;
                 }
                 else
                 {
-                    if (!_previousCursorVisible || _previousCursorLockState != 0) // 0 = CursorLockMode.None
+                    if (!_previousCursorVisible || _previousCursorLockState != CursorLockMode.None)
                         SetUnlockCursor(_previousCursorLockState, _previousCursorVisible);
                 }
 
@@ -220,8 +185,6 @@ namespace ConfigurationManager
                 if (!_showSettings.Value)
                     results = results.Where(x => x.IsAdvanced == true || IsKeyboardShortcut(x));
             }
-
-            const string shortcutsCatName = "Keyboard shortcuts";
 
             var settingsAreCollapsed = _pluginConfigCollapsedDefault.Value;
 
@@ -298,13 +261,9 @@ namespace ConfigurationManager
         {
             if (DisplayingWindow)
             {
-                SetUnlockCursor(0, true);
+                SetUnlockCursor(CursorLockMode.None, true);
 
-#if IL2CPP
-                Vector2 mousePosition = Input.mousePosition; //todo move to UnityInput whenever it is added
-#else
                 Vector2 mousePosition = UnityInput.Current.mousePosition;
-#endif
                 mousePosition.y = Screen.height - mousePosition.y;
 
                 // If the window hasn't been moved by the user yet, block the whole screen and use a solid background to make the window easier to see
@@ -392,11 +351,7 @@ namespace ConfigurationManager
                         {
                             DrawSinglePlugin(plugin);
                         }
-#if IL2CPP
-                        catch (Il2CppException)
-#else
                         catch (ArgumentException)
-#endif
                         {
                             // Needed to avoid GUILayout: Mismatched LayoutGroup.Repaint crashes on large lists
                         }
@@ -410,11 +365,7 @@ namespace ConfigurationManager
                         {
                             GUILayout.Space(plugin.Height);
                         }
-#if IL2CPP
-                        catch (Il2CppException)
-#else
                         catch (ArgumentException)
-#endif
                         {
                             // Needed to avoid GUILayout: Mismatched LayoutGroup.Repaint crashes on large lists
                         }
@@ -670,19 +621,6 @@ namespace ConfigurationManager
 
         private void Start()
         {
-            // Use reflection to keep compatibility with unity 4.x since it doesn't have Cursor
-            var tCursor = typeof(Cursor);
-            _curLockState = tCursor.GetProperty("lockState", BindingFlags.Static | BindingFlags.Public);
-            _curVisible = tCursor.GetProperty("visible", BindingFlags.Static | BindingFlags.Public);
-
-            if (_curLockState == null && _curVisible == null)
-            {
-                _obsoleteCursor = true;
-
-                _curLockState = typeof(Screen).GetProperty("lockCursor", BindingFlags.Static | BindingFlags.Public);
-                _curVisible = typeof(Screen).GetProperty("showCursor", BindingFlags.Static | BindingFlags.Public);
-            }
-
             // Check if user has permissions to write config files to disk
             try { Config.Save(); }
             catch (IOException ex) { Logger.Log(LogLevel.Message | LogLevel.Warning, "WARNING: Failed to write to config directory, expect issues!\nError message:" + ex.Message); }
@@ -691,7 +629,7 @@ namespace ConfigurationManager
 
         private void Update()
         {
-            if (DisplayingWindow) SetUnlockCursor(0, true);
+            if (DisplayingWindow) SetUnlockCursor(CursorLockMode.None, true);
 
             if (OverrideHotkey) return;
 
@@ -700,23 +638,16 @@ namespace ConfigurationManager
 
         private void LateUpdate()
         {
-            if (DisplayingWindow) SetUnlockCursor(0, true);
+            if (DisplayingWindow) SetUnlockCursor(CursorLockMode.None, true);
         }
 
-        private void SetUnlockCursor(int lockState, bool cursorVisible)
+        private void SetUnlockCursor(CursorLockMode lockState, bool cursorVisible)
         {
-            if (_curLockState != null)
-            {
-                // Do through reflection for unity 4 compat
-                //Cursor.lockState = CursorLockMode.None;
-                //Cursor.visible = true;
-                if (_obsoleteCursor)
-                    _curLockState.SetValue(null, Convert.ToBoolean(lockState), null);
-                else
-                    _curLockState.SetValue(null, lockState, null);
-
-                _curVisible.SetValue(null, cursorVisible, null);
-            }
+            Cursor.lockState = lockState;
+            Cursor.visible = cursorVisible;
+#pragma warning disable CS0618 // Type or member is obsolete
+            Screen.lockCursor = lockState != CursorLockMode.None;
+#pragma warning restore CS0618 // Type or member is obsolete
         }
 
         private sealed class PluginSettingsData
