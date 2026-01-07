@@ -10,7 +10,6 @@ plugin configurations, including keyboard shortcuts.
 The manager is accessed in-game by pressing F6 (default). This can be changed 
 in the configuration file or within the manager itself.
 
-
 Key Features for My Winter Car:
 -------------------------------
 - Forced Mouse Usage: The mouse cursor is automatically enabled and unlocked whenever the manager window is open.
@@ -18,13 +17,11 @@ Key Features for My Winter Car:
 - Robust Input Fields: Numerical and text inputs require Enter to commit, preventing accidental changes and handling different regional decimal formats.
 - Lightweight: Optimized for MWC's Mono environment with all unnecessary overhead removed.
 
-
 Installation:
 -------------
 1. Ensure you have BepInEx 5 installed in your My Winter Car directory.
 2. Place ConfigurationManager.dll into your BepInEx\plugins folder.
 3. Start the game and press F6 to open the menu.
-
 
 License:
 --------
@@ -34,7 +31,7 @@ Original Creator: MarC0 / ManlyMarco (https://github.com/ManlyMarco)
 Original Project: BepInEx.ConfigurationManager (https://github.com/BepInEx/BepInEx.ConfigurationManager)
 
 This version is a fork modified specifically for My Winter Car.
-
+Source Code: https://github.com/xVilho/MWC_BepInEx.ConfigurationManager
 
 Changelog:
 ----------
