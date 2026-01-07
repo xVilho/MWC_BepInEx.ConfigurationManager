@@ -36,7 +36,7 @@ The manager is accessed in-game by pressing **F6** (default). This can be change
   - Fixed UI sync issue where reset values didn't update visually in the editor.
   - Resolved Harmony initialization errors on certain Unity 5.0 versions.
 
-### v18.4.1 (MWC Edition)
+### v18.4.1
 - **Specialized for My Winter Car:** Optimized for MWC's Unity version and Mono environment.
 - **Mouse Fix:** Forced cursor visibility and unlocked state while the GUI is open.
 - **Cleanup:** Removed IL2CPP support and other redundant BepInEx 6 features to reduce overhead.

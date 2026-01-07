@@ -30,7 +30,7 @@ namespace ConfigurationManager
         /// <summary>
         /// GUID of this plugin
         /// </summary>
-        public const string GUID = "com.bepis.bepinex.configurationmanager";
+        public const string GUID = "com.xVilho.BepinEx.MWC_Configurationmanager";
 
         /// <summary>
         /// Version constant
